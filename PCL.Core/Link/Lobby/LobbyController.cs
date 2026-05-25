@@ -160,12 +160,19 @@ public sealed class LobbyController
     /// </summary>
     public static async Task<bool> IsHostInstanceAvailableAsync(int port)
     {
-        using var ping = McPingServiceFactory.CreateService("127.0.0.1", port);
-        var info = await ping.PingAsync().ConfigureAwait(false);
+        try
+        {
+            using var ping = McPingServiceFactory.CreateService("127.0.0.1", port);
+            var info = await ping.PingAsync().ConfigureAwait(false);
 
-        if (info != null) return true;
+            if (info != null) return true;
 
-        LogWrapper.Warn("Link", $"本地 MC 局域网实例 ({port}) 疑似已关闭");
+            LogWrapper.Warn("Link", $"本地 MC 局域网实例 ({port}) 疑似已关闭");
+        }
+        catch (Exception ex)
+        {
+            LogWrapper.Warn("Link", $"检查本地 MC 实例 ({port}) 时出错: {ex.Message}");
+        }
 
         return false;
     }
@@ -222,51 +229,45 @@ public sealed class LobbyController
 
         try
         {
-            HttpContent httpContent = new StringContent(sendData.ToJsonString(), Encoding.UTF8, "application/json");
             var key = EnvironmentInterop.GetSecret("TelemetryKey");
-            if (key == null)
+            if (string.IsNullOrWhiteSpace(key))
+            {
+                LogWrapper.Info("Link", "未设置 TelemetryKey，跳过发送联机数据");
+                return true;
+            }
+
+            HttpContent httpContent = new StringContent(sendData.ToJsonString(), Encoding.UTF8, "application/json");
+            using var response = await HttpRequest
+                .CreatePost("https://pcl2ce.pysio.online/post")
+                .WithContent(httpContent)
+                .WithBearerToken(key)
+                .SendAsync()
+                .ConfigureAwait(false);
+
+            if (!response.IsSuccess)
             {
                 if (RequiresLogin)
                 {
-                    LogWrapper.Error("Link", "联机数据发送失败，未设置 TelemetryKey");
+                    LogWrapper.Error("Link", "联机数据发送失败，响应内容为空");
                     return false;
                 }
-                LogWrapper.Warn("Link", "联机数据发送失败，未设置 TelemetryKey，跳过发送");
+                LogWrapper.Warn("Link", "联机数据发送失败，响应内容为空，跳过发送");
             }
             else
             {
-                using var response = await HttpRequest
-                    .CreatePost("https://pcl2ce.pysio.online/post")
-                    .WithContent(httpContent)
-                    .WithBearerToken(key)
-                    .SendAsync()
-                    .ConfigureAwait(false);
-
-                if (!response.IsSuccess)
+                var result = await response.AsStringAsync().ConfigureAwait(false);
+                if (result.Contains("数据已成功保存"))
                 {
-                    if (RequiresLogin)
-                    {
-                        LogWrapper.Error("Link", "联机数据发送失败，响应内容为空");
-                        return false;
-                    }
-                    LogWrapper.Warn("Link", "联机数据发送失败，响应内容为空，跳过发送");
+                    LogWrapper.Info("Link", "联机数据已发送");
                 }
                 else
                 {
-                    var result = await response.AsStringAsync().ConfigureAwait(false);
-                    if (result.Contains("数据已成功保存"))
+                    if (RequiresLogin)
                     {
-                        LogWrapper.Info("Link", "联机数据已发送");
+                        LogWrapper.Error("Link", "联机数据发送失败，响应内容: " + result);
+                        return false;
                     }
-                    else
-                    {
-                        if (RequiresLogin)
-                        {
-                            LogWrapper.Error("Link", "联机数据发送失败，响应内容: " + result);
-                            return false;
-                        }
-                        LogWrapper.Warn("Link", "联机数据发送失败，跳过发送，响应内容: " + result);
-                    }
+                    LogWrapper.Warn("Link", "联机数据发送失败，跳过发送，响应内容: " + result);
                 }
             }
         }

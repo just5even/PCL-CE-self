@@ -1,6 +1,9 @@
 using System.IO;
+using System.Linq;
 using System.Windows;
 using PCL.Core.App;
+using PCL.Core.Link.Lobby;
+using PCL.Core.Link.Scaffolding.Client.Models;
 using PCL.Core.Logging;
 using PCL.Core.UI;
 using PCL.Network;
@@ -49,6 +52,111 @@ public partial class PageLaunchRight : IRefreshable
             ModMain.Hint("不太对哦……");
         }
     }
+
+    #region 联机房间
+
+    private string? _roomVersionName;
+
+    /// <summary>
+    /// Called from PageLaunchLeft when a valid version is selected.
+    /// </summary>
+    public void SetVersionAvailable(string versionName)
+    {
+        _roomVersionName = versionName;
+        BtnCreateRoom.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>
+    /// Called from PageLaunchLeft when no version is selected.
+    /// </summary>
+    public void SetVersionUnavailable()
+    {
+        _roomVersionName = null;
+        BtnCreateRoom.Visibility = Visibility.Collapsed;
+    }
+
+    private async void BtnCreateRoom_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        if (_roomVersionName is null) return;
+
+        BtnCreateRoom.IsEnabled = false;
+        BtnCreateRoom.Text = "正在创建...";
+
+        try
+        {
+            var port = 25565;
+            var username = LobbyInfoProvider.GetUsername() ?? "Player_" + ModBase.GetUuid();
+
+            var success = await LobbyService.CreateLobbyAsync(port, username).ConfigureAwait(true);
+
+            if (success)
+            {
+                PanHint.Visibility = Visibility.Collapsed;
+                PanRoom.Visibility = Visibility.Visible;
+                LabRoomVersion.Text = $"当前版本：{_roomVersionName}";
+
+                LobbyService.Players.CollectionChanged += OnRoomPlayersChanged;
+                RefreshRoomPlayers();
+            }
+            else
+            {
+                BtnCreateRoom.IsEnabled = true;
+                BtnCreateRoom.Text = "创建联机房间";
+            }
+        }
+        catch (Exception ex)
+        {
+            ModBase.Log(ex, "创建联机房间失败", ModBase.LogLevel.Hint);
+            BtnCreateRoom.IsEnabled = true;
+            BtnCreateRoom.Text = "创建联机房间";
+        }
+    }
+
+    private async void BtnCloseRoom_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+    {
+        LobbyService.Players.CollectionChanged -= OnRoomPlayersChanged;
+
+        await LobbyService.LeaveLobbyAsync().ConfigureAwait(true);
+
+        PanRoom.Visibility = Visibility.Collapsed;
+        PanHint.Visibility = States.Hint.CEMessage ? Visibility.Visible : Visibility.Collapsed;
+        BtnCreateRoom.IsEnabled = true;
+        BtnCreateRoom.Text = "创建联机房间";
+    }
+
+    private void OnRoomPlayersChanged(object? sender, System.Collections.Specialized.NotifyCollectionChangedEventArgs e)
+    {
+        Dispatcher.InvokeAsync(RefreshRoomPlayers);
+    }
+
+    private void RefreshRoomPlayers()
+    {
+        ListRoomPlayers.Items.Clear();
+
+        if (LobbyService.Players.Count == 0)
+        {
+            ListRoomPlayers.Items.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = "（暂无成员加入）",
+                FontSize = 12,
+                Foreground = (System.Windows.Media.Brush)FindResource("ColorBrushGray3"),
+                Margin = new Thickness(0, 2, 0, 2)
+            });
+            return;
+        }
+
+        foreach (var player in LobbyService.Players)
+        {
+            ListRoomPlayers.Items.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = $"  {player.Name}  ({(player.Kind == PlayerKind.HOST ? "房主" : "成员")})",
+                FontSize = 12,
+                Margin = new Thickness(0, 2, 0, 2)
+            });
+        }
+    }
+
+    #endregion
 
     #region 主页
 

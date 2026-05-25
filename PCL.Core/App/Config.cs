@@ -174,6 +174,27 @@ public static partial class Config
         /// 在日志中输出 Cli 信息以用于调试。
         /// </summary>
         [ConfigItem<bool>("LinkEnableCliOutput", false)] public partial bool EnableCliOutput { get; set; }
+
+        /// <summary>
+        /// 实例同步配置。
+        /// </summary>
+        [ConfigGroup("Sync")] partial class SyncConfigGroup
+        {
+            /// <summary>
+            /// 启动前自动检查同步。
+            /// </summary>
+            [ConfigItem<bool>("LinkSyncAutoCheck", true)] public partial bool AutoCheckBeforeLaunch { get; set; }
+
+            /// <summary>
+            /// P2P 文件传输块大小 (KB)。
+            /// </summary>
+            [ConfigItem<int>("LinkSyncChunkSizeKb", 60)] public partial int P2PChunkSizeKb { get; set; }
+
+            /// <summary>
+            /// 同步超时时间 (秒)。
+            /// </summary>
+            [ConfigItem<int>("LinkSyncTimeoutSec", 300)] public partial int SyncTimeoutSeconds { get; set; }
+        }
     }
 
     /// <summary>

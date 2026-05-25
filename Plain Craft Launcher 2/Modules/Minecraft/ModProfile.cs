@@ -442,20 +442,7 @@ public static class ModProfile
         int? selectedAuthTypeNum = default; // 验证类型序号
         ModBase.RunInUiWait(() =>
         {
-            List<IMyRadio> authTypeList;
-#if DEBUG || DEBUGCI
-            authTypeList = _GetAvailableProfileSelection(true);
-#else
-            var HasMinecraftAccount = ProfileList.Any(x => x.Type == ModLaunch.McLoginType.Ms);
-            var Restricted = RegionUtils.IsRestrictedFeatAllowed && ProfileList.Count > 0;
-            var HasNetwork = NetworkHelper.IsNetworkAvailable();
-            if (HasMinecraftAccount || Restricted || !HasNetwork)
-                authTypeList = _GetAvailableProfileSelection(true);
-            else
-                authTypeList = _GetAvailableProfileSelection(false);
-            
-#endif
-        
+            var authTypeList = _GetAvailableProfileSelection(true);
             selectedAuthTypeNum = ModMain.MyMsgBoxSelect(authTypeList, "新建档案 - 选择验证类型", "继续", "取消");
         });
         if (selectedAuthTypeNum is null)
@@ -737,14 +724,12 @@ public static class ModProfile
                 {
                     var importCount = 0;
                     var importProfiles = new List<McProfile>();
-                    var hasMsProfile = ProfileList.Any(p => p.Type == ModLaunch.McLoginType.Ms);
                     foreach (var element in doc.RootElement.EnumerateArray())
                     {
                         var profile = ConvertToPclProfile(element);
                         if (profile is null) continue;
                         if (profile.Type == ModLaunch.McLoginType.Ms)
                         {
-                            hasMsProfile = true;
                             if (ProfileList.Any(p =>
                                     p.Type == ModLaunch.McLoginType.Ms && (p.Uuid ?? "") == (profile.Uuid ?? "")))
                                 continue;
@@ -752,12 +737,6 @@ public static class ModProfile
 
                         importProfiles.Add(profile);
                         importCount += 1;
-                    }
-
-                    if (!hasMsProfile)
-                    {
-                        ModMain.Hint("你必须先进行一次正版验证才能导入这些档案！", ModMain.HintType.Critical);
-                        return;
                     }
 
                     ProfileList.AddRange(importProfiles);

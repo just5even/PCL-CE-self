@@ -59,6 +59,16 @@ public class LobbyService() : GeneralService("lobby", "LobbyService")
     public static bool IsHost => _LobbyController.IsHost;
 
     /// <summary>
+    /// Current server entity. Null if not hosting or not connected.
+    /// </summary>
+    public static ScaffoldingServerEntity? CurrentServerEntity => _LobbyController.ScfServerEntity;
+
+    /// <summary>
+    /// Current client entity. Null if not connected as client.
+    /// </summary>
+    public static ScaffoldingClientEntity? CurrentClientEntity => _LobbyController.ScfClientEntity;
+
+    /// <summary>
     /// Current lobby full code.
     /// </summary>
     public static string? CurrentLobbyCode { get; private set; }
@@ -247,12 +257,6 @@ public class LobbyService() : GeneralService("lobby", "LobbyService")
     /// <param name="username">Player name.</param>
     public static async Task<bool> CreateLobbyAsync(int port, string username)
     {
-        if (_NotHaveNaid())
-        {
-            HintWrapper.Show("请先登录 Natayark ID 再使用大厅！", HintTheme.Error);
-            return false;
-        }
-
         await _discoveringCts.CancelAsync().ConfigureAwait(false);
 
         _SetState(LobbyState.Creating);
@@ -283,6 +287,7 @@ public class LobbyService() : GeneralService("lobby", "LobbyService")
 
             _SetState(LobbyState.Connected);
             _isGameWatcherRunnable = true;
+            _gameCheckFailCount = 0;
         }
         catch (Exception ex)
         {
@@ -511,6 +516,9 @@ public class LobbyService() : GeneralService("lobby", "LobbyService")
         StateChanged?.Invoke(oldState, newState);
     }
 
+    private static int _gameCheckFailCount = 0;
+    private const int MaxFailCount = 3;
+
     private static void _CheckGameState(object? state)
     {
         if (!_isGameWatcherRunnable)
@@ -526,11 +534,29 @@ public class LobbyService() : GeneralService("lobby", "LobbyService")
         LobbyController.IsHostInstanceAvailableAsync(_LobbyController.ScfServerEntity.EasyTier.MinecraftPort)
             .ContinueWith(async (task) =>
             {
-                var isExist = await task.ConfigureAwait(false);
-                if (!isExist)
+                try
                 {
-                    _isGameWatcherRunnable = false;
-                    OnUserStopGame?.Invoke();
+                    var isExist = await task.ConfigureAwait(false);
+                    if (!isExist)
+                    {
+                        _gameCheckFailCount++;
+                        LogWrapper.Debug("LobbyService",
+                            $"MC instance not reachable (fail {_gameCheckFailCount}/{MaxFailCount})");
+                        if (_gameCheckFailCount >= MaxFailCount)
+                        {
+                            _isGameWatcherRunnable = false;
+                            _gameCheckFailCount = 0;
+                            OnUserStopGame?.Invoke();
+                        }
+                    }
+                    else
+                    {
+                        _gameCheckFailCount = 0;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    LogWrapper.Warn("LobbyService", $"Error checking game state: {ex.Message}");
                 }
             });
     }

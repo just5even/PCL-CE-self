@@ -154,6 +154,20 @@ public partial class MyMsgText
         }
     }
 
+    private void MenuCopy_Click(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            Clipboard.SetText(LabCaption.Text);
+        }
+        catch { }
+    }
+
+    private void LabCaption_ContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        // ContextMenu is defined in XAML, no extra action needed
+    }
+
     private void Drag(object sender, MouseButtonEventArgs e)
     {
         try

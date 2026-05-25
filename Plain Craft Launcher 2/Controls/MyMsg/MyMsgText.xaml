@@ -33,7 +33,14 @@
                                DeltaMult="0.7">
                 <TextBlock VerticalAlignment="Top" TextTrimming="None" TextWrapping="Wrap" Name="LabCaption"
                            FontSize="15" LineHeight="18"
-                           Foreground="{DynamicResource ColorBrush1}" FontWeight="Normal" Padding="1" />
+                           Foreground="{DynamicResource ColorBrush1}" FontWeight="Normal" Padding="1"
+                           ContextMenuOpening="LabCaption_ContextMenuOpening">
+                    <TextBlock.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="复制全部内容" Click="MenuCopy_Click" />
+                        </ContextMenu>
+                    </TextBlock.ContextMenu>
+                </TextBlock>
             </my:MyScrollViewer>
             <StackPanel Grid.Row="4" Name="PanBtn" VerticalAlignment="Top" HorizontalAlignment="Right"
                         Margin="150,0,8,0" Orientation="Horizontal">

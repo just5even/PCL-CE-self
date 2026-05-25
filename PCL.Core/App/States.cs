@@ -336,7 +336,7 @@ public static partial class States
         /// <summary>
         /// 大厅最终用户许可协议。
         /// </summary>
-        [ConfigItem<bool>("LinkEula", false)] public partial bool LinkEula { get; set; }
+        [ConfigItem<bool>("LinkEula", true)] public partial bool LinkEula { get; set; }
 
         /// <summary>
         /// 公告缓存。

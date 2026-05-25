@@ -168,48 +168,6 @@ public static class ModLaunch
             }
 #endif
         
-        #if DEBUG || DEBUGCI
-        return;
-        #endif
-
-        // 正版购买提示
-        if (!ModProfile.ProfileList.Any(x => x.Type == McLoginType.Ms))
-        {
-            if (RegionUtils.IsRestrictedFeatAllowed)
-            {
-                if (ModMain.MyMsgBox(
-                        $"看起来你似乎没买正版...{"\r\n"}如果觉得 Minecraft 还不错，可以购买正版支持一下，毕竟开发游戏也真的很不容易...不要一直白嫖啦。{"\r\n"}{"\r\n"}在验证一个正版账号之后，就不会出现这个提示了！",
-                        "考虑一下正版？", "支持正版游戏！", "下次一定") ==
-                    1)
-                    ModBase.OpenWebsite(
-                        "https://www.xbox.com/zh-cn/games/store/minecraft-java-bedrock-edition-for-pc/9nxp44l49shj");
-            }
-            else
-            {                
-                switch (ModMain.MyMsgBox("你必须先登录正版账号才能启动游戏！", 
-                            "正版验证", 
-                            "购买正版", 
-                            "试玩", 
-                            "返回",
-                            Button1Action: () =>
-                                ModBase.OpenWebsite(
-                                    "https://www.xbox.com/zh-cn/games/store/minecraft-java-bedrock-edition-for-pc/9nxp44l49shj")))
-                {
-                    case 2:
-                    {
-                        ModMain.Hint("游戏将以试玩模式启动！", ModMain.HintType.Critical);
-                        CurrentLaunchOptions.ExtraArgs.Add("--demo");
-                        break;
-                    }
-                    case 3:
-                    {
-                        throw new Exception("$$");
-                    }
-                }
-
-            }
-
-        }
     }
 
     #endregion

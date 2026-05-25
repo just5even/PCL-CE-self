@@ -1,10 +1,14 @@
+using System;
 using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
 using PCL.Core.App;
+using PCL.Core.Link.Lobby;
+using PCL.Core.Link.Sync;
 using PCL.Core.Utils;
 using PCL.Network;
 
@@ -259,6 +263,7 @@ public partial class PageLaunchLeft
                 ModMain.FrmLaunchLeft.LabVersion.Text = "正在加载中，请稍候";
                 ModMain.FrmLaunchLeft.BtnInstance.IsEnabled = false;
                 ModMain.FrmLaunchLeft.BtnMore.Visibility = Visibility.Collapsed;
+                ModMain.FrmLaunchRight?.SetVersionUnavailable();
                 break;
             }
             case 1:
@@ -269,6 +274,7 @@ public partial class PageLaunchLeft
                 ModMain.FrmLaunchLeft.LabVersion.Text = "未找到可用的游戏实例";
                 ModMain.FrmLaunchLeft.BtnInstance.IsEnabled = true;
                 ModMain.FrmLaunchLeft.BtnMore.Visibility = Visibility.Collapsed;
+                ModMain.FrmLaunchRight?.SetVersionUnavailable();
                 break;
             }
             case 2:
@@ -279,6 +285,7 @@ public partial class PageLaunchLeft
                 ModMain.FrmLaunchLeft.LabVersion.Text = "未找到可用的游戏实例";
                 ModMain.FrmLaunchLeft.BtnInstance.IsEnabled = true;
                 ModMain.FrmLaunchLeft.BtnMore.Visibility = Visibility.Collapsed;
+                ModMain.FrmLaunchRight?.SetVersionUnavailable();
                 break;
             }
             case 3:
@@ -291,6 +298,7 @@ public partial class PageLaunchLeft
                 else
                     BtnLaunch.IsEnabled = false;
                 ModMain.FrmLaunchLeft.LabVersion.Text = ModMinecraft.McInstanceSelected.Name;
+                ModMain.FrmLaunchRight?.SetVersionAvailable(ModMinecraft.McInstanceSelected.Name);
                 break;
             }
             // FrmLaunchLeft.BtnMore.Visibility = Visibility.Visible '由功能隐藏设置修改
@@ -508,9 +516,56 @@ public partial class PageLaunchLeft
     }
 
     // 启动游戏按钮
-    private void BtnLaunch_Click(object sender, MouseButtonEventArgs e)
+    private async void BtnLaunch_Click(object sender, MouseButtonEventArgs e)
     {
-        LaunchButtonClick();
+        if (await _PreLaunchSyncCheckAsync())
+            LaunchButtonClick();
+    }
+
+    private static async Task<bool> _PreLaunchSyncCheckAsync()
+    {
+        // Only check if connected as a client in a lobby
+        if (LobbyService.CurrentState != LobbyState.Connected || LobbyService.IsHost)
+            return true;
+
+        var client = LobbyService.CurrentClientEntity?.Client;
+        if (client is null || !client.IsConnected)
+            return true;
+
+        // Don't check if AutoCheckBeforeLaunch is disabled
+        if (!Config.Link.Sync.AutoCheckBeforeLaunch)
+            return true;
+
+        try
+        {
+            var instance = PageInstanceLeft.Instance;
+            if (instance is null) return true;
+
+            var diff = await SyncService.FetchAndComputeDiffAsync(
+                client, instance.PathIndie, instance.PathInstance,
+                instance.Name, instance.Info?.VanillaName ?? "Unknown",
+                "Unknown");
+
+            if (diff.Entries.Count == 0)
+                return true;
+
+            // Show diff dialog
+            var dialog = new PageSyncDiff();
+            var shouldSync = await dialog.ShowDialogAsync(diff);
+
+            if (!shouldSync)
+                return false; // user cancelled
+
+            // Apply sync
+            await SyncService.ApplySyncAsync(client, diff, instance.PathIndie);
+            ModMain.Hint("同步完成，可以启动游戏了", ModMain.HintType.Info);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ModMain.Hint($"同步检查失败: {ex.Message}", ModMain.HintType.Critical);
+            return true; // Allow launch even if sync check fails
+        }
     }
 
     #region 切换大页面
