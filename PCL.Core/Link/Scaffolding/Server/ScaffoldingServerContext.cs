@@ -1,6 +1,7 @@
 using PCL.Core.Link.Scaffolding.Client.Models;
 using PCL.Core.Link.Scaffolding.EasyTier;
 using PCL.Core.Link.Scaffolding.Server.Abstractions;
+using PCL.Core.Link.Sync;
 using PCL.Core.App;
 using System;
 using System.Collections.Concurrent;
@@ -45,6 +46,34 @@ public class ScaffoldingServerContext : IServerContext
 
     /// <inheritdoc />
     public string PlayerName { get; }
+
+    // Sync fields
+    public InstanceManifest? CurrentManifest { get; set; }
+    public string? SelectedInstancePath { get; set; }
+    public string? SelectedInstanceIndiePath { get; set; }
+    public string? SelectedInstanceName { get; set; }
+
+    private readonly Dictionary<int, InstanceManifest> _manifestVersionHistory = [];
+    private readonly object _historyLock = new();
+
+    public void AddManifestVersion(int version, InstanceManifest manifest)
+    {
+        lock (_historyLock)
+        {
+            _manifestVersionHistory[version] = manifest;
+            // Keep only last 10 versions
+            var oldestKeys = _manifestVersionHistory.Keys.OrderBy(k => k)
+                .Take(_manifestVersionHistory.Count - 10).ToList();
+            foreach (var key in oldestKeys)
+                _manifestVersionHistory.Remove(key);
+        }
+    }
+
+    public InstanceManifest? TryGetManifestVersion(int version)
+    {
+        lock (_historyLock)
+            return _manifestVersionHistory.GetValueOrDefault(version);
+    }
 
     private ScaffoldingServerContext(
         ConcurrentDictionary<string, TrackedPlayerProfile> profiles,

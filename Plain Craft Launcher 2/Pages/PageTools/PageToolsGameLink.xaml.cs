@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.Linq;
 using System.Windows;
 using System.Windows.Input;
 using Newtonsoft.Json.Linq;
@@ -11,6 +12,7 @@ using PCL.Core.Link.McPing;
 using PCL.Core.Link.Natayark;
 using PCL.Core.Link.Scaffolding.Client.Models;
 using PCL.Core.Link.Scaffolding.EasyTier;
+using PCL.Core.Link.Sync;
 using PCL.Core.Logging;
 using PCL.Core.Utils.Validate;
 using PCL.Network;
@@ -368,8 +370,15 @@ public partial class PageToolsGameLink
                 while (serverNumber < Secrets.LinkServers.Length)
                     try
                     {
+                        var serverUrl = Secrets.LinkServers[serverNumber];
+                        if (string.IsNullOrWhiteSpace(serverUrl))
+                        {
+                            serverNumber++;
+                            continue;
+                        }
+
                         // 获取缓存版本号
-                        var cacheRes = Requester.Fetch($"{Secrets.LinkServers[serverNumber]}/api/link/v2/cache.ini",
+                        var cacheRes = Requester.Fetch($"{serverUrl}/api/link/v2/cache.ini",
                             new FetchParam
                             {
                                 Method = "GET",
@@ -387,7 +396,7 @@ public partial class PageToolsGameLink
                         {
                             LogWrapper.Info("[Link] Fetching new announcement data");
                             var received = Requester.Fetch(
-                                $"{Secrets.LinkServers[serverNumber]}/api/link/v2/announce.json",
+                                $"{serverUrl}/api/link/v2/announce.json",
                                 new FetchParam
                                 {
                                     Method = "GET",
@@ -413,7 +422,11 @@ public partial class PageToolsGameLink
 
                 #endregion
 
-                if (jObj == null) throw new Exception("Failed to fetch lobby data");
+                if (jObj == null)
+                {
+                    LogWrapper.Info("[Link] No valid lobby server configured, skipping announcement");
+                    return;
+                }
 
                 #region 解析基础状态与版本限制
 
@@ -978,7 +991,8 @@ public partial class PageToolsGameLink
     {
         PanEula,
         PanSelect,
-        PanFinish
+        PanFinish,
+        PanSync
     }
 
     private Subpages _CurrentSubpage = States.Link.LinkEula ? Subpages.PanSelect : Subpages.PanEula;
@@ -1004,6 +1018,171 @@ public partial class PageToolsGameLink
             CurrentSubpage == Subpages.PanSelect ? Visibility.Visible : Visibility.Collapsed;
         ModMain.FrmToolsGameLink.PanFinish.Visibility =
             CurrentSubpage == Subpages.PanFinish ? Visibility.Visible : Visibility.Collapsed;
+        ModMain.FrmToolsGameLink.PanSync.Visibility =
+            CurrentSubpage == Subpages.PanSync ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    #endregion
+
+    #region Sync
+
+    private void BtnFinishSync_Click(object sender, ModBase.RouteEventArgs routeEventArgs)
+    {
+        CurrentSubpage = Subpages.PanSync;
+        _RefreshSyncPanel();
+    }
+
+    private async void BtnShareInstance_Click(object sender, MouseButtonEventArgs e)
+    {
+        if (ComboInstanceList.SelectedItem is not MyComboBoxItem { Tag: ModMinecraft.McInstance instance })
+        {
+            ModMain.Hint("请先选择一个实例", ModMain.HintType.Critical);
+            return;
+        }
+
+        var indiePath = instance.PathIndie;
+        var instancePath = instance.PathInstance;
+        var mcVersion = instance.Info?.VanillaName ?? "Unknown";
+        var modLoader = _GetModLoader(instance);
+
+        BtnShareInstance.IsEnabled = false;
+        TxtSyncStatus.Text = "正在生成实例清单...";
+
+        try
+        {
+            var success = await SyncService.HostSelectInstanceAsync(
+                indiePath, instancePath, instance.Name, mcVersion, modLoader);
+
+            if (success)
+            {
+                TxtSyncInstance.Text = $"分享中: {instance.Name} ({mcVersion})";
+                TxtSyncStatus.Text = $"实例已就绪，版本 {SyncService.RemoteManifest?.Version}。等待成员同步...";
+            }
+            else
+            {
+                TxtSyncStatus.Text = "分享实例失败，请重试";
+            }
+        }
+        catch (Exception ex)
+        {
+            ModMain.Hint($"分享失败: {ex.Message}", ModMain.HintType.Critical);
+            TxtSyncStatus.Text = "错误: " + ex.Message;
+        }
+        finally
+        {
+            BtnShareInstance.IsEnabled = true;
+        }
+    }
+
+    private async void BtnCheckSync_Click(object sender, EventArgs e)
+    {
+        var client = LobbyService.CurrentClientEntity?.Client;
+        if (client is null)
+        {
+            ModMain.Hint("未连接到大厅", ModMain.HintType.Critical);
+            return;
+        }
+
+        var instance = PageInstanceLeft.Instance;
+        if (instance is null)
+        {
+            ModMain.Hint("请先在启动页选择一个实例", ModMain.HintType.Critical);
+            return;
+        }
+
+        BtnCheckSync.IsEnabled = false;
+        TxtSyncStatus.Text = "正在检查更新...";
+
+        try
+        {
+            var diff = await SyncService.FetchAndComputeDiffAsync(
+                client, instance.PathIndie, instance.PathInstance,
+                instance.Name, instance.Info?.VanillaName ?? "Unknown",
+                _GetModLoader(instance));
+
+            if (diff.Entries.Count == 0)
+            {
+                TxtSyncStatus.Text = "已是最新版本，无需同步";
+            }
+            else
+            {
+                var dialog = new PageSyncDiff();
+                var shouldSync = await dialog.ShowDialogAsync(diff);
+
+                if (shouldSync)
+                {
+                    SyncService.SyncProgress += (done, total) =>
+                        Dispatcher.InvokeAsync(() => dialog.UpdateProgress(done, total, ""));
+
+                    await SyncService.ApplySyncAsync(client, diff, instance.PathIndie);
+                    TxtSyncStatus.Text = "同步完成！";
+                    CurrentSubpage = Subpages.PanFinish;
+                }
+                else
+                {
+                    TxtSyncStatus.Text = "已取消同步";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            ModMain.Hint($"检查更新失败: {ex.Message}", ModMain.HintType.Critical);
+            TxtSyncStatus.Text = "错误: " + ex.Message;
+        }
+        finally
+        {
+            BtnCheckSync.IsEnabled = true;
+        }
+    }
+
+    private void _RefreshSyncPanel()
+    {
+        var isHost = LobbyService.IsHost;
+
+        if (isHost)
+        {
+            BtnCheckSync.Visibility = Visibility.Collapsed;
+
+            // Load instance list
+            ComboInstanceList.Items.Clear();
+            foreach (var inst in ModMinecraft.McInstanceList.SelectMany(kv => kv.Value).Where(i => i.IsLoaded))
+            {
+                ComboInstanceList.Items.Add(new MyComboBoxItem
+                {
+                    Content = inst.Name,
+                    Tag = inst
+                });
+            }
+
+            if (SyncService.RemoteManifest is not null)
+            {
+                TxtSyncInstance.Text = $"分享中: {SyncService.RemoteManifest.InstanceName}";
+                TxtSyncStatus.Text = $"实例版本 {SyncService.RemoteManifest.Version}，等待成员同步...";
+            }
+            else
+            {
+                TxtSyncInstance.Text = "未选择实例";
+                TxtSyncStatus.Text = "选择实例后点击「分享实例」开始同步";
+            }
+        }
+        else
+        {
+            BtnCheckSync.Visibility = Visibility.Visible;
+            ComboInstanceList.Visibility = Visibility.Collapsed;
+            BtnShareInstance.Visibility = Visibility.Collapsed;
+            TxtSyncStatus.Text = "点击「检查更新」查看房主的实例变更";
+        }
+    }
+
+    private static string _GetModLoader(ModMinecraft.McInstance instance)
+    {
+        if (instance.Info is null) return "Vanilla";
+        if (!string.IsNullOrEmpty(instance.Info.Forge)) return "Forge";
+        if (!string.IsNullOrEmpty(instance.Info.Fabric)) return "Fabric";
+        if (!string.IsNullOrEmpty(instance.Info.NeoForge)) return "NeoForge";
+        if (!string.IsNullOrEmpty(instance.Info.Quilt)) return "Quilt";
+        if (!string.IsNullOrEmpty(instance.Info.OptiFine)) return "OptiFine";
+        return "Vanilla";
     }
 
     #endregion

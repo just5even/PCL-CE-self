@@ -58,9 +58,17 @@ public sealed class ScaffoldingServer : IAsyncDisposable
             ["c:server_port"] = new GetServerPortHandler(),
             ["c:player_profiles_list"] = new GetPlayerProfileListHandler(),
             ["c:protocols"] = new GetProtocolsHandler(),
-            ["c:ping"] = new PingHandler()
+            ["c:ping"] = new PingHandler(),
+            ["c:sync_version"] = new SyncVersionHandler(),
+            ["c:sync_manifest"] = new SyncManifestHandler(),
+            ["c:sync_file"] = new SyncFileHandler()
         };
     }
+
+    /// <summary>
+    /// Gets the server context. Returns the concrete type for sync handlers.
+    /// </summary>
+    public IServerContext ServerContext => _context;
 
     public void Start()
     {
